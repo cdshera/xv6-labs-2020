@@ -80,6 +80,8 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+//lab2:syscall 2nd
 // Return the number of bytes of free memory
 uint64
 free_mem(void)
