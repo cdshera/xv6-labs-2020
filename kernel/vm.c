@@ -440,3 +440,42 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+//lab2:syscall 1st
+void vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+
+  printwalk(pagetable, 1); // 递归打印页表
+}
+
+//lab2:syscall 1st
+void printwalk(pagetable_t pagetable, int depth)
+{
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V)
+    { // PTE合法
+      uint64 child = PTE2PA(pte);
+      // 按format打印level，PTE与PA
+      switch (depth)
+      {
+      case 1:
+        printf("..");
+        break;
+      case 2:
+        printf(".. ..");
+        break;
+      case 3:
+        printf(".. .. ..");
+        break;
+      }
+      printf("%d: pte %p pa %p\n", i, pte, child);
+
+      // 只有在页表的最后一级，才可读写或可执行
+      // 若不在最后一级，则继续递归
+      if ((pte & (PTE_R | PTE_W | PTE_X)) == 0)
+        printwalk((pagetable_t)child, depth + 1);
+    }
+  }
+}
