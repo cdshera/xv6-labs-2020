@@ -47,6 +47,39 @@ kvminit()
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
 
+//lab3:syscall 2nd
+pagetable_t proc_kvminit()
+{
+  pagetable_t kernelpagetable = (pagetable_t)kalloc();
+  memset(kernelpagetable, 0, PGSIZE);
+
+  // uart registers
+  proc_kvmmap(kernelpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  proc_kvmmap(kernelpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // 注释掉，腾出空间映射用户页表，避免冲突
+  // CLINT
+  //proc_kvmmap(kernelpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  proc_kvmmap(kernelpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  proc_kvmmap(kernelpagetable, KERNBASE, KERNBASE, (uint64)etext - KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  proc_kvmmap(kernelpagetable, (uint64)etext, (uint64)etext, PHYSTOP - (uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  proc_kvmmap(kernelpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return kernelpagetable;
+}
+
+
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
 void
@@ -56,6 +89,12 @@ kvminithart()
   sfence_vma();
 }
 
+// 将进程的内核页表装载入satp寄存器
+void proc_kvminithart(pagetable_t kernelpagetable)
+{
+  w_satp(MAKE_SATP(kernelpagetable));
+  sfence_vma(); // 刷新快表
+}
 // Return the address of the PTE in page table pagetable
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page-table pages.
@@ -121,24 +160,33 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
     panic("kvmmap");
 }
 
+//lab3:syscall 2nd
+// 为每个进程的内核页表添加映射
+void proc_kvmmap(pagetable_t kernelpagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if (mappages(kernelpagetable, va, sz, pa, perm) != 0)
+    panic("proc_kvmmap");
+}
+
 // translate a kernel virtual address to
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+//lab3:syscall 2nd
 uint64
-kvmpa(uint64 va)
+kvmpa(pagetable_t kernel_pagetable, uint64 va)
 {
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
-  
+
   pte = walk(kernel_pagetable, va, 0);
-  if(pte == 0)
+  if (pte == 0)
     panic("kvmpa");
-  if((*pte & PTE_V) == 0)
+  if ((*pte & PTE_V) == 0)
     panic("kvmpa");
   pa = PTE2PA(*pte);
-  return pa+off;
+  return pa + off;
 }
 
 // Create PTEs for virtual addresses starting at va that refer to
@@ -287,6 +335,26 @@ freewalk(pagetable_t pagetable)
     }
   }
   kfree((void*)pagetable);
+}
+
+// 清除三级映射并释放页表
+void proc_freewalk(pagetable_t pagetable)
+{
+  // there are 2^9 = 512 PTEs in a page table.
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];
+    if ((pte & PTE_V))
+    {
+      pagetable[i] = 0;
+      // this PTE points to a lower-level page table.
+      if((pte & (PTE_R | PTE_W | PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        proc_freewalk((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void *)pagetable);
 }
 
 // Free user memory pages,
