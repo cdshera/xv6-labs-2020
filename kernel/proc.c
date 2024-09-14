@@ -244,6 +244,8 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+  // 拷贝用户页表到内核页表
+  u2kvmcopy(p->pagetable, p->kernelpagetable, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -267,11 +269,19 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+    if(sz + n > PLIC)
+      return -1;
+    if ((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0)
+    {
       return -1;
     }
-  } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    if(u2kvmcopy(p->pagetable, p->kernelpagetable, p->sz, n) < 0)
+      return -1;
+  }
+  else if (n < 0)
+  {
+    uvmdealloc(p->pagetable, sz, sz + n);
+    sz = kvmdealloc(p->kernelpagetable, sz, sz + n);
   }
   p->sz = sz;
   return 0;
@@ -298,6 +308,13 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // 拷贝用户页表到内核页表
+  if(u2kvmcopy(np->pagetable, np->kernelpagetable, 0, np->sz) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
 
   np->parent = p;
 

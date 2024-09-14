@@ -317,6 +317,22 @@ uvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   return newsz;
 }
 
+// 与 uvmdealloc 功能类似，将程序内存从 oldsz 缩减到 newsz。但区别在于不释放物理内存
+uint64
+kvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+  if (newsz >= oldsz)
+    return oldsz;
+
+  if (PGROUNDUP(newsz) < PGROUNDUP(oldsz))
+  {
+    int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;
+    uvmunmap(pagetable, PGROUNDUP(newsz), npages, 0);
+  }
+
+  return newsz;
+}
+
 // Recursively free page-table pages.
 // All leaf mappings must already have been removed.
 void
@@ -447,23 +463,24 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
+  return copyin_new(pagetable, dst, srcva, len);
+  // uint64 n, va0, pa0;
 
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+  // while(len > 0){
+  //   va0 = PGROUNDDOWN(srcva);
+  //   pa0 = walkaddr(pagetable, va0);
+  //   if(pa0 == 0)
+  //     return -1;
+  //   n = PGSIZE - (srcva - va0);
+  //   if(n > len)
+  //     n = len;
+  //   memmove(dst, (void *)(pa0 + (srcva - va0)), n);
 
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  //   len -= n;
+  //   dst += n;
+  //   srcva = va0 + PGSIZE;
+  // }
+  // return 0;
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -473,40 +490,41 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
+  return copyinstr_new(pagetable, dst, srcva, max);
+  // uint64 n, va0, pa0;
+  // int got_null = 0;
 
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
+  // while(got_null == 0 && max > 0){
+  //   va0 = PGROUNDDOWN(srcva);
+  //   pa0 = walkaddr(pagetable, va0);
+  //   if(pa0 == 0)
+  //     return -1;
+  //   n = PGSIZE - (srcva - va0);
+  //   if(n > max)
+  //     n = max;
 
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
+  //   char *p = (char *) (pa0 + (srcva - va0));
+  //   while(n > 0){
+  //     if(*p == '\0'){
+  //       *dst = '\0';
+  //       got_null = 1;
+  //       break;
+  //     } else {
+  //       *dst = *p;
+  //     }
+  //     --n;
+  //     --max;
+  //     p++;
+  //     dst++;
+  //   }
 
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  //   srcva = va0 + PGSIZE;
+  // }
+  // if(got_null){
+  //   return 0;
+  // } else {
+  //   return -1;
+  // }
 }
 //lab2:syscall 1st
 void vmprint(pagetable_t pagetable)
@@ -546,4 +564,35 @@ void printwalk(pagetable_t pagetable, int depth)
         printwalk((pagetable_t)child, depth + 1);
     }
   }
+}
+
+// 拷贝用户页表到内核页表，start为起始位置，sz为大小
+// 与uvmcopy不同的是，这里的物理地址不需要重新分配(mem多余)，只要添加一份映射即可
+int u2kvmcopy(pagetable_t userpgtbl, pagetable_t kernelpgtbl, uint64 start, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+
+  uint64 start_page = PGROUNDUP(start); // 从整数页开始
+  for (i = start_page; i < start + sz; i += PGSIZE)
+  { 
+    // 不需要kalloc分配空间了
+    if ((pte = walk(userpgtbl, i, 0)) == 0)
+      panic("u2kvmcopy: pte should exist");
+    if ((*pte & PTE_V) == 0)
+      panic("u2kvmcopy: page not present");
+    pa = PTE2PA(*pte);
+    // & ~PTE_U 表示将该页的权限设置为非用户页
+    // 必须清除用户页标志，否则内核无法访问。
+    flags = PTE_FLAGS(*pte) & (~PTE_U);
+    // 用mappages添加内核页表到该物理地址的映射
+    if (mappages(kernelpgtbl, i, PGSIZE, pa, flags) != 0)
+      goto err;
+  }
+  return 0;
+
+err:
+  uvmunmap(kernelpgtbl, start_page, (i - start_page) / PGSIZE, 0); // 记得第四个参数要设置为0，因为这里没有分配新的物理内存，所以也不需要释放，如果释放，会释放用户页表的物理内存，那就出错了
+  return -1;
 }
