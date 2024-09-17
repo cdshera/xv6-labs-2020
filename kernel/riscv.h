@@ -297,6 +297,16 @@ r_tp()
   return x;
 }
 
+//lab4:traps 2nd lab
+// 获取s0寄存器中的帧指针
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
 static inline void 
 w_tp(uint64 x)
 {

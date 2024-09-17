@@ -121,6 +121,7 @@ panic(char *s)
   printf("panic: ");
   printf(s);
   printf("\n");
+  backtrace();   //lab4:traps 2nd lab
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;
@@ -131,4 +132,18 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+//lab4:traps 2nd lab
+void
+backtrace(void){
+  uint64 fp = r_fp();
+  // 栈只占一个页面，所以可以通过取整获取栈的最低和最高地址
+  uint64 bottom = PGROUNDDOWN(fp); 
+  uint64 top = PGROUNDUP(fp);
+
+  while(fp >= bottom && fp < top){
+    printf("%p\n", *((uint64 *)(fp - 8)));
+    fp = *((uint64 *)(fp - 16));
+  }
 }
