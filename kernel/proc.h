@@ -99,8 +99,14 @@ struct proc {
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // User page table
   struct trapframe *trapframe; // data page for trampoline.S
+  struct trapframe *trapframecopy; // trapframe的副本  //lab4:traps 3rd lab
   struct context context;      // swtch() here to run process
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  //lab4:traps 3rd lab
+  int alarmticks;              // 时钟间隔
+  void (*handler)();           // 处理动作
+  int passedticks;             // 距离下一次alarm的时间
 };
