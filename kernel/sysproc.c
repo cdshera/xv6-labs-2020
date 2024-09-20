@@ -43,12 +43,22 @@ sys_sbrk(void)
 {
   int addr;
   int n;
+  struct proc *p = myproc();
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
-    return -1;
+  
+  addr = p->sz;
+
+ // 处理n为负的情况，释放内存
+  if(n < 0){
+    uvmdealloc(p->pagetable, p->sz, p->sz + n);
+  }
+
+  p->sz = p->sz + n;  //lab5:lazy 1st lab
+
+  // if(growproc(n) < 0)
+  //   return -1;
   return addr;
 }
 

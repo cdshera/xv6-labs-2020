@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -94,6 +96,21 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
+  // pte_t *pte;
+  // uint64 pa;
+
+  // if(va >= MAXVA)
+  //   return 0;
+
+  // pte = walk(pagetable, va, 0);
+  // if(pte == 0)
+  //   return 0;
+  // if((*pte & PTE_V) == 0)
+  //   return 0;
+  // if((*pte & PTE_U) == 0)
+  //   return 0;
+  // pa = PTE2PA(*pte);
+  // return pa;
   pte_t *pte;
   uint64 pa;
 
@@ -101,13 +118,29 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
+  if(pte == 0 || (*pte & PTE_V) == 0){
+    // 此处copyin/copyout调用walkaddr，位于内核态，不会发生pagefault
+    // 所以要自己手动分配内存
+    struct proc *p = myproc();
+    // 杀死va高于分配内存，或杀死va低于用户栈的进程
+    if(va >= p->sz || va < p->trapframe->sp)
+      return 0;
+    // 或杀死分配物理地址失败的进程,分配成功则置零
+    if((pa = (uint64)kalloc()) == 0)
+      return 0;
+    memset((void*)pa, 0, PGSIZE);
+    // 添加映射 
+    if (mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, pa, PTE_W | PTE_R | PTE_U) != 0)
+    {
+      kfree((void*)pa);
+      return 0;
+    }
+  }else if((*pte & PTE_U) == 0){
     return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
-  if((*pte & PTE_U) == 0)
-    return 0;
-  pa = PTE2PA(*pte);
+  }else{
+    pa = PTE2PA(*pte);
+  }
+
   return pa;
 }
 
@@ -180,10 +213,12 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+    if((pte = walk(pagetable, a, 0)) == 0)  // L1级页表项未映射或页表不存在,根本不存在第三级页表 //lab5:lazy 2st lab
+      // panic("uvmunmap: walk");
+      continue;     //lab5:lazy 2st lab
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;     //lab5:lazy 2st lab
+      // panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -315,9 +350,9 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;   //lab5:lazy 1st lab
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
