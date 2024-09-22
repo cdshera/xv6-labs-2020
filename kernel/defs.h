@@ -17,6 +17,12 @@ void            bwrite(struct buf*);
 void            bpin(struct buf*);
 void            bunpin(struct buf*);
 
+//lab6:cow
+//cow.c
+void            initlock_cow(void);
+void            inc_cowref(uint64);
+uint8           dec_cowref(uint64);
+
 // console.c
 void            consoleinit(void);
 void            consoleintr(int);
@@ -168,6 +174,7 @@ void            uvmfree(pagetable_t, uint64);
 void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
 uint64          walkaddr(pagetable_t, uint64);
+uint64          walkaddr_cow(pagetable_t, uint64); //lab6:cow
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
