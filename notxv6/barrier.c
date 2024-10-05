@@ -22,6 +22,13 @@ barrier_init(void)
   bstate.nthread = 0;
 }
 
+//lab7:thread 3rd step
+static void
+barrier_destroy(){
+  pthread_mutex_destroy(&bstate.barrier_mutex);
+  pthread_cond_destroy(&bstate.barrier_cond);
+}
+
 static void 
 barrier()
 {
@@ -30,7 +37,17 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  //lab7:thread 3rd step
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  ++bstate.nthread;
+  if(bstate.nthread != nthread)
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  else{
+    bstate.nthread = 0;
+    ++bstate.round;
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *
@@ -74,5 +91,7 @@ main(int argc, char *argv[])
   for(i = 0; i < nthread; i++) {
     assert(pthread_join(tha[i], &value) == 0);
   }
+  barrier_destroy();   //lab7:thread 3rd step
+
   printf("OK; passed\n");
 }
