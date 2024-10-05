@@ -17,6 +17,8 @@ struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
 
+pthread_mutex_t lock[NBUCKET]; // 声明锁 //lab7:thread 2nd step
+
 double
 now()
 {
@@ -51,7 +53,11 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
+    pthread_mutex_lock(&lock[i]); //lab7:thread 2nd step
+
     insert(key, value, &table[i], table[i]);
+
+    pthread_mutex_unlock(&lock[i]);//lab7:thread 2nd step
   }
 }
 
@@ -118,6 +124,11 @@ main(int argc, char *argv[])
   //
   // first the puts
   //
+  
+  // 初始化锁 //lab7:thread 2nd step
+  for (int i = 0; i < NBUCKET; ++i)
+    pthread_mutex_init(&lock[i], NULL);
+
   t0 = now();
   for(int i = 0; i < nthread; i++) {
     assert(pthread_create(&tha[i], NULL, put_thread, (void *) (long) i) == 0);
@@ -129,6 +140,11 @@ main(int argc, char *argv[])
 
   printf("%d puts, %.3f seconds, %.0f puts/second\n",
          NKEYS, t1 - t0, NKEYS / (t1 - t0));
+
+  // 销毁锁 //lab7:thread 2nd step
+  for (int i = 0; i < NBUCKET; ++i)
+    pthread_mutex_destroy(&lock[i]);
+
 
   //
   // now the gets

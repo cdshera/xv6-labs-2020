@@ -1,0 +1,1 @@
+The main reason is that two threads access the critical resource, the hash table, resulting in a conflict. Therefore, a lock is required in the critical region to maintain the invariant.
